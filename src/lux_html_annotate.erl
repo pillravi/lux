@@ -669,10 +669,11 @@ html_result(Tag, {result, Result}, HtmlLog) ->
             ];
         {warning, RawLineNo, Expected0, Actual, Details} ->
             Anchor = RawLineNo,
-            Expected = lux_utils:expand_lines(Expected0),
-            Expected2 = lux_utils:normalize_newlines(Expected),
-            Expected3 = binary:split(Expected2, <<"\\R">>, [global]),
-            Diff = lux_utils:diff(Expected3, Details),
+            E = lux_utils:expand_lines(Expected0),
+            E2 = lux_utils:normalize_newlines(E),
+            E3 = binary:replace(E2, <<"\\\\">>, <<"\\">>, [global]),
+            Expected = binary:split(E3, <<"\\R">>, [global]),
+            Diff = lux_utils:diff(Expected, Details),
             HtmlDiff = html_diff(Diff),
             [
              "\n<", Tag, ">Result: <strong>",
@@ -681,20 +682,19 @@ html_result(Tag, {result, Result}, HtmlLog) ->
              lux_html_utils:html_href([HtmlLog, "#", Anchor], Anchor),
              "</strong></", Tag, ">\n",
              "<h3>Expected</h3>",
-              html_div(<<"event">>, lux_utils:expand_lines(Expected3)),
+             html_div(<<"event">>, lux_utils:expand_lines(Expected)),
              "<h3>Actual: ", lux_html_utils:html_quote(Actual), "</h3>",
-             [
-              "\n<div class=\"event\"><pre>",
-              lux_utils:expand_lines(HtmlDiff),
-              "</pre></div>"
-             ]
+             "\n<div class=\"event\"><pre>",
+             lux_utils:expand_lines(HtmlDiff),
+             "</pre></div>"
             ];
         {fail, RawLineNo, Expected0, Actual, Details} ->
             Anchor = RawLineNo,
-            Expected = lux_utils:expand_lines(Expected0),
-            Expected2 = lux_utils:normalize_newlines(Expected),
-            Expected3 = binary:split(Expected2, <<"\\R">>, [global]),
-            Diff = lux_utils:diff(Expected3, Details),
+            E = lux_utils:expand_lines(Expected0),
+            E2 = lux_utils:normalize_newlines(E),
+            E3 = binary:replace(E2, <<"\\\\">>, <<"\\">>, [global]),
+            Expected = binary:split(E3, <<"\\R">>, [global]),
+            Diff = lux_utils:diff(Expected, Details),
             HtmlDiff = html_diff(Diff),
             [
              "\n<", Tag, ">Result: <strong>",
@@ -702,80 +702,104 @@ html_result(Tag, {result, Result}, HtmlLog) ->
              " at line ",
              lux_html_utils:html_href([HtmlLog, "#", Anchor], Anchor),
              "</strong></", Tag, ">\n",
-             "<h3>Expected</h3>",
-              html_div(<<"event">>, lux_utils:expand_lines(Expected3)),
+             "<h3>Expected:</h3>",
+             html_div(<<"event">>, lux_utils:expand_lines(Expected)),
              "<h3>Actual: ", lux_html_utils:html_quote(Actual), "</h3>",
-             [
-              "\n<div class=\"event\"><pre>",
-              lux_utils:expand_lines(HtmlDiff),
-              "</pre></div>",
-              lux_html_utils:html_anchor("failed", "")
-             ]
+             "<div class=\"event\"><pre>",
+             lux_utils:expand_lines(Details),
+             "</pre></div>",
+             lux_html_utils:html_anchor("failed", ""),
+             "<h3>Diff:</h3>",
+             "<div class=\"event\"><pre>",
+             lux_utils:expand_lines(HtmlDiff),
+             "</pre></div>",
+             lux_html_utils:html_anchor("failed", "")
             ]
     end.
 
 html_diff(Diff) ->
     html_diff(Diff, [], first, false).
 
-html_diff([H|T], Acc, Where, Rep) ->
-    Plain = "",
+html_diff([H|T], Acc, Prev, Rep) ->
     Bold = "b",
     case H of
-        {'=', Com} ->
-            html_diff(T, [{<<"  ">>, "black",Bold,clean,Com}|Acc], middle, Rep);
-        {'+', Ins} when Where =/= first, element(1,hd(T)) =:= common ->
-            html_diff(T, [{<<"+ ">>,"blue",Bold,clean,Ins}|Acc], middle, Rep);
+        Com when is_list(Com) ->
+            html_diff(T, [{<<"  ">>, "black",Bold,clean,Com}|Acc], H, Rep);
+        {'-', Del} when element(1, hd(T)) =:= '+' ->
+            Ins = element(2, hd(T)),
+            html_diff([{'!', Ins, Del} | tl(T)], Acc, H, Rep);
+        {'+', Ins} when element(1, hd(T)) =:= '+' ->
+            Del = element(2, hd(T)),
+            html_diff([{'!', Ins, Del} | tl(T)], Acc, H, Rep);
         {'+', Ins} ->
-            html_diff(T, [{<<"  ">>,"black",Plain,clean,Ins}|Acc], middle, Rep);
+            Prefix =
+                if
+                    Acc =:= [], is_list(hd(T)) ->
+                        %% First
+                        <<"  ">>;
+                    is_list(Prev), T =:= [] ->
+                        %% Last
+                        <<"  ">>;
+                    true ->
+                        <<"+ ">>
+                end,
+            html_diff(T, [{Prefix,"blue",Bold,clean,Ins}|Acc], H, Rep);
         {'-', Del} ->
-            html_diff(T, [{<<"- ">>,"red",Bold,clean,Del}|Acc], middle, Rep);
-        {'!', Ins, Del} when Where =:= first, T =:= [] ->
-            %% Display single replace as insert
-            {Clean, _Del2, Ins2} = html_part(Del, Ins),
-%%          html_diff(T, [{<<"- ">>,"red",Bold,Clean,Del2},
-%%                        {<<"+ ">>,"blue",Bold,Clean,Ins2}|Acc], middle, true)
-            html_diff(T, [{<<"  ">>,"black",Bold,Clean,Ins2}|Acc],middle, true);
+            html_diff(T, [{<<"- ">>,"red",Bold,clean,Del}|Acc], H, Rep);
         {'!', Ins, Del} ->
             {Clean, Del2, Ins2} = html_part(Del, Ins),
             html_diff(T, [{<<"- ">>,"red",Bold,Clean,Del2},
-                          {<<"+ ">>,"blue",Bold,Clean,Ins2}|Acc], middle, true)
+                          {<<"+ ">>,"blue",Bold,Clean,Ins2}|Acc], H, true)
     end;
-html_diff([], Acc, _Where, Rep) ->
+html_diff([], Acc, _Prev, Rep) ->
     html_color(lists:reverse(Acc), Rep).
 
-html_part([Del], [Ins]) ->
-    Diff = lux_utils:diff(?b2l(Del), ?b2l(Ins)),
-    html_part_diff(Diff, [], []);
+html_part(Del, Ins) when length(Del) =:= length(Ins) ->
+    html_part2(Del, Ins, [], [], noclean);
 html_part(Del, Ins) ->
     {clean, Del, Ins}.
 
-html_part_diff([H|T], DelAcc, InsAcc) ->
+html_part2([Del|DelRest], [Ins|InsRest], DelAcc, InsAcc, Clean) ->
+    Diff = lux_diff:compare(?b2l(Del), ?b2l(Ins)),
+    {Clean2, Del2, Ins2} = html_part_diff(Diff, [], [], Clean),
+    html_part2(DelRest, InsRest, [Del2|DelAcc], [Ins2|InsAcc], Clean2);
+html_part2([], [], DelAcc, InsAcc, Clean2) ->
+    {Clean2,
+     [?l2b(lists:reverse(DelAcc))],
+     [?l2b(lists:reverse(InsAcc))]}.
+
+
+html_part_diff([H|T], DelAcc, InsAcc, Clean) ->
     Underline = "u",
     case H of
-        {'=', Com} ->
+        Com when is_list(Com)  ->
             CleanCom = lux_html_utils:html_quote(Com),
             html_part_diff(T,
                            [CleanCom|DelAcc],
-                           [CleanCom|InsAcc]);
+                           [CleanCom|InsAcc],
+                           Clean);
         {'+', Ins} ->
             html_part_diff(T,
                            DelAcc,
                            [tag(Underline,
-                                lux_html_utils:html_quote(Ins))|InsAcc]);
+                                lux_html_utils:html_quote(Ins))|InsAcc],
+                           Clean);
         {'-', Del} ->
             html_part_diff(T,
                            [tag(Underline,
                                 lux_html_utils:html_quote(Del))|DelAcc],
-                           InsAcc);
+                           InsAcc,
+                           Clean);
         {'!', Ins, Del} ->
             html_part_diff(T,
                            [tag(Underline,
                                 lux_html_utils:html_quote(Del))|DelAcc],
                            [tag(Underline,
-                                lux_html_utils:html_quote(Ins))|InsAcc])
+                                lux_html_utils:html_quote(Ins))|InsAcc],
+                           Clean)
     end;
-html_part_diff([], DelAcc, InsAcc) ->
-    {noclean,
+html_part_diff([], DelAcc, InsAcc, Clean) ->
+    {Clean,
      [?l2b(lists:reverse(DelAcc))],
      [?l2b(lists:reverse(InsAcc))]}.
 

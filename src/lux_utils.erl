@@ -545,74 +545,15 @@ verbatim_collect2(_Actual, _Expected, _Orig, _Base, _Pos, _Len) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Diff
 
-%% diff_files(OldFile, NewFile) ->
-%%     {OldFile, {ok, OldBin}} = {OldFile, file:read_file(OldFile)},
-%%     {NewFile, {ok, NewBin}} = {NewFile, file:read_file(NewFile)},
-%%     diff(split_lines(OldBin), split_lines(NewBin)).
-%%
-%% split_lines(<<"">>) ->
-%%     [];
-%% split_lines(Bin) when is_binary(Bin) ->
-%%     Opts = [global],
-%%     Bin2 = normalize_regexp(Bin),
-%%     binary:split(Bin2, <<"\\\\R">>, Opts).
-
-diff(OldBins, NewBins) ->
-    Old = numerate_lines(OldBins),
-    New = numerate_lines(NewBins),
-    Patch = diff(New, Old, [], 0),
-    merge(Patch, Old).
-
-numerate_lines(List) ->
-    numerate_lines(List, 1, []).
-
-numerate_lines([H|T], N, Acc) ->
-    numerate_lines(T, N+1, [{N,H}|Acc]);
-numerate_lines([], _N, Acc) ->
-    lists:reverse(Acc).
-
--type patch() :: {From :: non_neg_integer(),
-                  To   :: non_neg_integer()} |
-                  binary().
-
--type diff() :: {'=',[binary()]} |
-                {'+',[binary()]} |
-                {'-',[binary()]} |
-                {'!',[binary()],[binary()]}.
-
--spec diff(New :: [{non_neg_integer(),binary()}],
-           Old :: [{non_neg_integer(),binary()}],
-           [patch()],
-           Min :: non_neg_integer()) ->
-          [patch()].
-
-diff([], _, Patch,_Min) ->
-    lists:reverse(Patch);
-diff([{_,Line}|T]=New, Old, Patch, Min) ->
-    case match(New, Old, Min) of
-        {yes, From, To, Rest} ->
-            diff(Rest, Old, [{From,To}|Patch], To);
-        no ->
-            diff(T, Old, [Line|Patch], Min)
-    end.
-
-match([{_,NewElem}|NewT]=New, [{From,OldElem}|OldT], Min) when From > Min ->
-    case equal(OldElem, NewElem) of
-        match   -> extend_match(NewT, OldT, From, From);
-        nomatch -> match(New, OldT, Min)
-    end;
-match(New, [_|T], Min) ->
-    match(New, T, Min);
-match(_New, [], _Min) ->
-    no.
-
-extend_match([{_,NewElem}|NewT]=New, [{To,OldElem}|OldT], From, PrevTo) ->
-    case equal(OldElem, NewElem) of
-        match   -> extend_match(NewT, OldT, From, To);
-        nomatch -> {yes, From, PrevTo, New}
-    end;
-extend_match(New, _, From, To) ->
-    {yes, From, To, New}.
+diff(Old, New) ->
+    Equal =
+        fun(O, N) ->
+                case lux_utils:equal(O, N) of
+                    match   -> true;
+                    nomatch -> false
+                end
+        end,
+    lux_diff:compare2(Old, New, Equal).
 
 equal(Expected, Expected) ->
     match;
@@ -656,56 +597,6 @@ expand_lines([Line]) ->
     Line;
 expand_lines([Line | Lines]) ->
     [Line, "\n", expand_lines(Lines)].
-
--spec merge([patch()], Old  :: [{non_neg_integer(),binary()}]) ->
-          [diff()].
-
-merge(Patch, Old) ->
-    merge(Patch, Old, 1, []).
-
-merge([{From,To}|Patch], Old, Next, Acc) ->
-    {Next2, Common} = get_lines(From, To, Old, []),
-    Acc2 =
-        if
-            From > Next ->
-                %% Add missing lines
-                {_, Delete} = get_lines(Next, From-1, Old, []),
-                add({'=',Common}, add({'-',Delete}, Acc));
-            true ->
-                add({'=',Common},Acc)
-        end,
-    merge(Patch, Old, Next2, Acc2);
-merge([Insert|Patch], Old, Next, Acc) ->
-    merge(Patch, Old, Next, add({'+',[Insert]},Acc));
-merge([], Old, Next, Acc) ->
-    %% Add missing lines in the end
-    Fun = fun({N,L}, A) when N >= Next -> [L|A];
-             (_,A)                    -> A
-          end,
-    Acc2 =
-        case lists:foldl(Fun, [], Old) of
-            []     -> Acc;
-            Delete -> add({'-',lists:reverse(Delete)}, Acc)
-        end,
-    lists:reverse(Acc2).
-
-get_lines(_, To, [{To,Line}|_Rest], Acc) ->
-    {To+1, lists:reverse([Line|Acc])};
-get_lines(From, To, [{From,Line}|Rest], Acc) ->
-    get_lines(From+1, To, Rest, [Line|Acc]);
-get_lines(From, To, [_|Rest], Acc) ->
-    get_lines(From, To, Rest, Acc).
-
-add({'+',Curr}, [{'+',Prev}|Merge]) ->
-    [{'+',Prev++Curr}|Merge];
-add({'-',Curr}, [{'-',Prev}|Merge]) ->
-    [{'-',Prev++Curr}|Merge];
-add({'-',Delete}, [{'+',Insert}|Merge]) ->
-    [{'!',Insert,Delete}|Merge];
-add({'+',Insert}, [{'-',Delete}|Merge]) ->
-    [{'!',Delete,Insert}|Merge];
-add(Curr, Merge) ->
-    [Curr|Merge].
 
 cmd(Cmd) ->
     Output = os:cmd(Cmd++"; echo $?"),

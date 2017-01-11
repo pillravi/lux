@@ -491,16 +491,8 @@ print_fail(OldI0, NewI, File, Results,
                             end,
                         [Prefix, Bin, "\n"]
                 end,
-            Equal =
-                fun(A, B) ->
-                        case lux_utils:equal(A, B) of
-                            match   -> true;
-                            nomatch -> false
-                        end
-                end,
-            Diff = lux_diff:compare2(SplitLines(Expected),
-                                     SplitLines(NewRest),
-                                     Equal),
+            Diff = lux_utils:diff(SplitLines(Expected),
+                                  SplitLines(NewRest)),
             Expanded = lux_diff:split_diff(Diff),
             Flatten = iolist_to_binary(lists:map(ToIoList, Expanded)),
             io:format("diff\n~s\n", [Flatten])
