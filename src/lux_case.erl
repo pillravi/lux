@@ -475,7 +475,35 @@ print_fail(OldI0, NewI, File, Results,
             ok;
         _ ->
             io:format("~s", [ResStr]),
-            io:format("~s\n", [FailBin])
+            io:format("~s\n", [FailBin]),
+            SplitLines =
+                fun(X) ->
+                        X2 = lux_utils:normalize_newlines(X),
+                        binary:split(X2, <<"\\R">>, [global])
+                end,
+            ToIoList =
+                fun ({Sign, Bin}) ->
+                        Prefix =
+                            case Sign of
+                                '+' -> "\t+ ";
+                                '-' -> "\t- ";
+                                '=' -> "\t  "
+                            end,
+                        [Prefix, Bin, "\n"]
+                end,
+            Equal =
+                fun(A, B) ->
+                        case lux_utils:equal(A, B) of
+                            match   -> true;
+                            nomatch -> false
+                        end
+                end,
+            Diff = lux_diff:compare2(SplitLines(Expected),
+                                     SplitLines(NewRest),
+                                     Equal),
+            Expanded = lux_diff:split_diff(Diff),
+            Flatten = iolist_to_binary(lists:map(ToIoList, Expanded)),
+            io:format("diff\n~s\n", [Flatten])
     end,
     double_ilog(OldI, "expected\n\"~s\"\n",
                 [lux_utils:to_string(Expected)]),

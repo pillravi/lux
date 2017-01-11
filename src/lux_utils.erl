@@ -17,7 +17,7 @@
          progress_write/2, fold_files/5, foldl_cmds/5, foldl_cmds/6,
          pretty_full_lineno/1, pretty_filename/1, filename_split/1, dequote/1,
          now_to_string/1, datetime_to_string/1, verbatim_match/2,
-         diff/2,
+         diff/2, equal/2,
          cmd/1, cmd_expected/1, perms/1,
          pick_opt/3]).
 
@@ -616,19 +616,13 @@ extend_match(New, _, From, To) ->
 
 equal(Expected, Expected) ->
     match;
-equal(<<"">>, _Actual) ->
-    nomatch;
-equal("", _Actual) ->
-    nomatch;
 equal(Expected0, Actual) when is_binary(Expected0); is_list(Expected0) ->
     Expected = normalize_regexp(Expected0),
     try
         re:run(Actual, Expected,[{capture, none}, notempty])
     catch _:_ ->
             nomatch
-    end;
-equal(_Expected, _Actual) ->
-    nomatch.
+    end.
 
 normalize_regexp(<<Prefix:1/binary, _/binary>> = RegExp)
   when Prefix =/= <<"^">> ->
