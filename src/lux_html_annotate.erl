@@ -673,8 +673,7 @@ html_result(Tag, {result, Result}, HtmlLog) ->
             E2 = lux_utils:normalize_newlines(E),
             E3 = binary:replace(E2, <<"\\\\">>, <<"\\">>, [global]),
             Expected = binary:split(E3, <<"\\R">>, [global]),
-            Diff = lux_utils:diff(Expected, Details),
-            HtmlDiff = html_diff(Diff),
+            HtmlDiff = lux_utils:diff_iter(Expected, Details, fun emit/4, []),
             [
              "\n<", Tag, ">Result: <strong>",
              lux_html_utils:html_href([HtmlLog, "#failed"], "FAILED"),
@@ -694,8 +693,7 @@ html_result(Tag, {result, Result}, HtmlLog) ->
             E2 = lux_utils:normalize_newlines(E),
             E3 = binary:replace(E2, <<"\\\\">>, <<"\\">>, [global]),
             Expected = binary:split(E3, <<"\\R">>, [global]),
-            Diff = lux_utils:diff(Expected, Details),
-            HtmlDiff = html_diff(Diff),
+            HtmlDiff = lux_utils:diff_iter(Expected, Details, fun emit/4, []),
             [
              "\n<", Tag, ">Result: <strong>",
              lux_html_utils:html_href([HtmlLog, "#failed"], "FAILED"),
@@ -717,40 +715,52 @@ html_result(Tag, {result, Result}, HtmlLog) ->
             ]
     end.
 
-html_diff(Diff) ->
-    html_diff(Diff, [], first, false).
-
-html_diff([H|T], Acc, Prev, Rep) ->
+emit(Op, Context, line, Acc) ->
     Bold = "b",
-    case H of
-        Com when is_list(Com) ->
-            html_diff(T, [{<<"  ">>, "black",Bold,clean,Com}|Acc], H, Rep);
-        {'-', Del} when element(1, hd(T)) =:= '+' ->
-            Ins = element(2, hd(T)),
-            html_diff([{'!', Ins, Del} | tl(T)], Acc, H, Rep);
-        {'+', Ins} when element(1, hd(T)) =:= '+' ->
-            Del = element(2, hd(T)),
-            html_diff([{'!', Ins, Del} | tl(T)], Acc, H, Rep);
-        {'+', Ins} ->
-            Prefix =
-                if
-                    Acc =:= [], is_list(hd(T)) ->
-                        %% First
-                        <<"  ">>;
-                    is_list(Prev), T =:= [] ->
-                        %% Last
-                        <<"  ">>;
-                    true ->
-                        <<"+ ">>
+    Acc2 =
+        case Op of
+            {common, Common} ->
+                [{<<"  ">>, "black", Bold, clean, Common} | Acc];
+            {del, Del} ->
+                [{<<"- ">>,"red", Bold, clean, Del} | Acc];
+            {add, Add} ->
+                Prefix =
+                case Context of
+                    first -> <<"  ">>;
+                    last  -> <<"  ">>;
+                    other -> <<"+ ">>
                 end,
-            html_diff(T, [{Prefix,"blue",Bold,clean,Ins}|Acc], H, Rep);
-        {'-', Del} ->
-            html_diff(T, [{<<"- ">>,"red",Bold,clean,Del}|Acc], H, Rep);
-        {'!', Ins, Del} ->
-            {Clean, Del2, Ins2} = html_part(Del, Ins),
-            html_diff(T, [{<<"- ">>,"red",Bold,Clean,Del2},
-                          {<<"+ ">>,"blue",Bold,Clean,Ins2}|Acc], H, true)
+                [{Prefix, "blue", Bold, clean, Add} | Acc];
+            {replace, Del, Add} ->
+                {Clean, Del2, Add2} = html_part(Del, Add),
+                [{<<"- ">>, "red", Bold, Clean, Del2},
+                 {<<"+ ">>, "blue", Bold, Clean, Add2} | Acc]
+        end,
+    case Context of
+        last -> html_color(lists:reverse(Acc2), Rep);
+        _    -> Acc2
     end;
+emit(Op, Context, char, Acc) ->
+    Bold = "b",
+    case Op of
+        {common, Common} ->
+            {<<"  ">>, "black", Bold, clean, Common};
+        {del, Del} ->
+            [{<<"- ">>,"red", Bold, clean, Del};
+        {add, Add} ->
+            Prefix =
+                case Context of
+                    first -> <<"  ">>;
+                    last  -> <<"  ">>;
+                    other -> <<"+ ">>
+                end,
+            [{Prefix, "blue", Bold, clean, Add} | Acc];
+        {replace, Del, Add} ->
+            {Clean, Del2, Add2} = html_part(Del, Add),
+            [{<<"- ">>, "red", Bold, Clean, Del2},
+             {<<"+ ">>, "blue", Bold, Clean, Add2} | Acc]
+    end.
+
 html_diff([], Acc, _Prev, Rep) ->
     html_color(lists:reverse(Acc), Rep).
 

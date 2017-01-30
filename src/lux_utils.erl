@@ -17,7 +17,7 @@
          progress_write/2, fold_files/5, foldl_cmds/5, foldl_cmds/6,
          pretty_full_lineno/1, pretty_filename/1, filename_split/1, dequote/1,
          now_to_string/1, datetime_to_string/1, verbatim_match/2,
-         diff/2, equal/2,
+         diff/2, equal/2, diff_iter/4,
          cmd/1, cmd_expected/1, perms/1,
          pick_opt/3]).
 
@@ -542,51 +542,6 @@ verbatim_collect2(_Actual, _Expected, _Orig, _Base, _Pos, _Len) ->
     %% No match
     nomatch.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Diff
-
-diff(Old, New) ->
-    Equal =
-        fun(O, N) ->
-                case lux_utils:equal(O, N) of
-                    match   -> true;
-                    nomatch -> false
-                end
-        end,
-    lux_diff:compare2(Old, New, Equal).
-
-equal(Expected, Expected) ->
-    match;
-equal(Expected0, Actual) when is_binary(Expected0); is_list(Expected0) ->
-    Expected = normalize_regexp(Expected0),
-    try
-        re:run(Actual, Expected,[{capture, none}, notempty])
-    catch _:_ ->
-            nomatch
-    end.
-
-normalize_regexp(<<Prefix:1/binary, _/binary>> = RegExp)
-  when Prefix =/= <<"^">> ->
-    normalize_regexp(<<"^", RegExp/binary>>);
-normalize_regexp(RegExp) when is_binary(RegExp) ->
-    Size = byte_size(RegExp)-1,
-    case RegExp of
-        <<_:Size/binary, "$">> ->
-            RegExp;
-        _ ->
-            normalize_regexp(<<RegExp/binary, "$">>)
-    end;
-normalize_regexp([Prefix|RegExp])
-  when Prefix =/= $^ ->
-    normalize_regexp([$^|RegExp]);
-normalize_regexp(RegExp) when is_list(RegExp) ->
-    case lists:last(RegExp) of
-        $\$ ->
-            RegExp;
-        _ ->
-            normalize_regexp(RegExp++"$")
-    end.
-
 normalize_newlines(IoList) ->
     re:replace(IoList, <<"(\r\n|\r|\n)">>, <<"\\\\R">>,
                [global, {return, binary}]).
@@ -634,3 +589,99 @@ pick_opt(Tag, [{_Tag, _Val} | Opts], Val) ->
     pick_opt(Tag, Opts, Val);
 pick_opt(_Tag, [], Val) ->
     Val.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Diff
+
+diff(Old, New) ->
+    Equal =
+        fun(O, N) ->
+                case lux_utils:equal(O, N) of
+                    match   -> true;
+                    nomatch -> false
+                end
+        end,
+    lux_diff:compare2(Old, New, Equal).
+
+equal(Expected, Expected) ->
+    match;
+equal(Expected0, Actual) when is_binary(Expected0); is_list(Expected0) ->
+    Expected = normalize_regexp(Expected0),
+    try
+        re:run(Actual, Expected,[{capture, none}, notempty])
+    catch _:_ ->
+            nomatch
+    end.
+
+normalize_regexp(<<Prefix:1/binary, _/binary>> = RegExp)
+  when Prefix =/= <<"^">> ->
+    normalize_regexp(<<"^", RegExp/binary>>);
+normalize_regexp(RegExp) when is_binary(RegExp) ->
+    Size = byte_size(RegExp)-1,
+    case RegExp of
+        <<_:Size/binary, "$">> ->
+            RegExp;
+        _ ->
+            normalize_regexp(<<RegExp/binary, "$">>)
+    end;
+normalize_regexp([Prefix|RegExp])
+  when Prefix =/= $^ ->
+    normalize_regexp([$^|RegExp]);
+normalize_regexp(RegExp) when is_list(RegExp) ->
+    case lists:last(RegExp) of
+        $\$ ->
+            RegExp;
+        _ ->
+            normalize_regexp(RegExp++"$")
+    end.
+
+-type elem() :: binary() | char().
+-type op() :: {common,[elem()]} |
+              {del, [elem()]} |
+              {add,[elem()]} |
+              {replace, Del :: [elem()], Add :: [elem()]}.
+-type context() :: first | other | last.
+-type type() :: line | char.
+-type acc() :: term().
+-type callback() :: fun((op(), context(), type(), acc()) -> acc()).
+-spec diff_iter([binary()], [binary()], callback(), acc()) -> acc().
+diff_iter(Old, New, Fun) ->
+    Diff = diff(Old, New),
+    diff_iter(Diff, Fun, first, line, []).
+
+diff_iter([H|T], Fun, Context, Type, Acc) ->
+    case H of
+        Common when is_list(Common) ->
+            New = Fun({common,Common}, Context, Type),
+            diff_iter(T, Fun, context(Context, T), Type, [New|Acc]);
+        {'-', Del} when element(1, hd(T)) =:= '+' ->
+            Add = element(2, hd(T)),
+            diff_iter([{'!', Del, Add} | tl(T)], Fun, Context, Type, Acc);
+        {'+', Add} when element(1, hd(T)) =:= '+' ->
+            Del = element(2, hd(T)),
+            diff_iter([{'!', Del, Add} | tl(T)], Fun, Context, Type, Acc);
+        {'+', Add} ->
+            New = Fun({add,Add}, Context, Type),
+            diff_iter(T, Fun, context(Context, T), Type, [New|Acc]);
+        {'-', Del} ->
+            New = Fun({del,Del}, Context, Type, Acc),
+            diff_iter(T, Fun, context(Context, T), Type, [New|Acc]);
+        {'!', Del, Add} when Type =:= line ->
+            DelChars = ?b2l(?l2b(expand_lines(Del))),
+            AddChars = ?b2l(?l2b(expand_lines(Add))),
+            NestedDiff = lux_diff:compare(DelChars, AddChars),
+            NestedAcc = diff_iter(NestedDiff, Fun, first, char, []),
+            New = lists:reverse(NestedAcc),
+            diff_iter(T, Fun, context(Context, T), Type, [New|Acc]);
+        {'!', Del, Add} when Type =:= char ->
+            New = Fun({replace,Del,Add}, Context, Type),
+            diff_iter(T, Fun, context(Context, T), Type, [New|Acc])
+    end;
+diff_iter([], _Fun, Acc, _Context, _Type) ->
+    lists:reverse(Acc).
+
+context(_Prev, []) ->
+    last;
+context(first, _More) ->
+    other;
+context(Prev, _More) ->
+    Prev.
