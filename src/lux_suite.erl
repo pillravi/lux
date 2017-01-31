@@ -248,7 +248,14 @@ annotate_event_log(R, Script, NewSummary, CaseLogDir, Opts) ->
                                       Base ++ ".event.log"]),
             SuiteLogDir = R#rstate.log_dir,
             NoHtmlOpts = lists:keydelete(html, 1, Opts),
-            ok = annotate_log(false, EventLog, SuiteLogDir, NoHtmlOpts);
+            case annotate_log(false, EventLog, SuiteLogDir, NoHtmlOpts) of
+                ok ->
+                    ok;
+                {error, File, ReasonStr} ->
+                    io:format("\nINTERNAL LUX ERROR\n\t~s:\n\t~s\n",
+                              [File, ReasonStr]),
+                    ok
+            end;
         true ->
             ok
     end.
@@ -716,8 +723,8 @@ run_cases(OrigR, [{SuiteFile,{ok,Script}, P, LenP} | Scripts],
                     end,
                     AllWarnings = OrigR#rstate.warnings ++ RunWarnings,
                     NewR2 = NewR#rstate{warnings = AllWarnings},
-                    ok = annotate_event_log(NewR2, Script, NewSummary,
-                                            CaseLogDir, Opts),
+                    annotate_event_log(NewR2, Script, NewSummary,
+                                       CaseLogDir, Opts),
                     _ = write_results(NewR2, NewSummary, NewResults),
                     run_cases(NewR2, NewScripts, NewSummary, NewResults,
                               Max, CC+1, List, NewOpaque)

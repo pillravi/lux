@@ -17,7 +17,7 @@
          progress_write/2, fold_files/5, foldl_cmds/5, foldl_cmds/6,
          pretty_full_lineno/1, pretty_filename/1, filename_split/1, dequote/1,
          now_to_string/1, datetime_to_string/1, verbatim_match/2,
-         diff/2, equal/2, diff_iter/4,
+         diff/2, equal/2, diff_iter/5,
          cmd/1, cmd_expected/1, perms/1,
          pick_opt/3]).
 
@@ -589,6 +589,7 @@ pick_opt(Tag, [{_Tag, _Val} | Opts], Val) ->
     pick_opt(Tag, Opts, Val);
 pick_opt(_Tag, [], Val) ->
     Val.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Diff
 
@@ -642,41 +643,41 @@ normalize_regexp(RegExp) when is_list(RegExp) ->
 -type context() :: first | other | last.
 -type type() :: line | char.
 -type acc() :: term().
--type callback() :: fun((op(), context(), type(), acc()) -> acc()).
--spec diff_iter([binary()], [binary()], callback(), acc()) -> acc().
-diff_iter(Old, New, Type, Fun) ->
+-type callback() :: fun((op(), type(), context(), acc()) -> acc()).
+-spec diff_iter([binary()], [binary()], type(), callback(), acc()) -> acc().
+diff_iter(Old, New, Type, Fun, Acc) ->
     Diff = diff(Old, New),
-    diff_iter(Diff, Fun, first, Type, []).
+    diff_iter2(Diff, Type, Fun, first, Acc).
 
-diff_iter([H|T], Fun, Context, Type, Acc) ->
+diff_iter2([H|T], Type, Fun, Context, Acc) ->
     case H of
         Common when is_list(Common) ->
-            New = Fun({common,Common}, Context, Type),
-            diff_iter(T, Fun, context(Context, T), Type, [New|Acc]);
+            NewAcc = Fun({common,Common}, Type, Context, Acc),
+            diff_iter2(T, Type, Fun, context(Context, T), NewAcc);
         {'-', Del} when element(1, hd(T)) =:= '+' ->
             Add = element(2, hd(T)),
-            diff_iter([{'!', Del, Add} | tl(T)], Fun, Context, Type, Acc);
+            diff_iter2([{'!', Del, Add} | tl(T)], Type, Fun, Context, Acc);
         {'+', Add} when element(1, hd(T)) =:= '+' ->
             Del = element(2, hd(T)),
-            diff_iter([{'!', Del, Add} | tl(T)], Fun, Context, Type, Acc);
+            diff_iter2([{'!', Del, Add} | tl(T)], Type, Fun, Context, Acc);
         {'+', Add} ->
-            New = Fun({add,Add}, Context, Type),
-            diff_iter(T, Fun, context(Context, T), Type, [New|Acc]);
+            NewAcc = Fun({add,Add}, Type, Context, Acc),
+            diff_iter2(T, Type, Fun, context(Context, T), NewAcc);
         {'-', Del} ->
-            New = Fun({del,Del}, Context, Type, Acc),
-            diff_iter(T, Fun, context(Context, T), Type, [New|Acc]);
+            NewAcc = Fun({del,Del}, Type, Context, Acc),
+            diff_iter2(T, Type, Fun, context(Context, T), NewAcc);
         {'!', Del, Add} when Type =:= line ->
             DelChars = ?b2l(?l2b(expand_lines(Del))),
             AddChars = ?b2l(?l2b(expand_lines(Add))),
             NestedDiff = lux_diff:compare(DelChars, AddChars),
-            NestedAcc = diff_iter(NestedDiff, Fun, first, char, []),
-            New = lists:reverse(NestedAcc),
-            diff_iter(T, Fun, context(Context, T), Type, [New|Acc]);
+            NestedAcc = diff_iter2(NestedDiff, char, Fun, first, []),
+            NewAcc = [lists:reverse(NestedAcc)|Acc],
+            diff_iter2(T, Type, Fun, context(Context, T), NewAcc);
         {'!', Del, Add} when Type =:= char ->
-            New = Fun({replace,Del,Add}, Context, Type),
-            diff_iter(T, Fun, context(Context, T), Type, [New|Acc])
+            NewAcc = Fun({replace,Del,Add}, Type, Context, Acc),
+            diff_iter2(T, Type, Fun, context(Context, T), NewAcc)
     end;
-diff_iter([], _Fun, Acc, _Context, _Type) ->
+diff_iter2([], _Type, _Fun, _Context, Acc) ->
     lists:reverse(Acc).
 
 context(_Prev, []) ->

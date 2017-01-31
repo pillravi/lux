@@ -715,7 +715,10 @@ html_result(Tag, {result, Result}, HtmlLog) ->
             ]
     end.
 
-emit(Op, Context, line, Acc) ->
+html_diff(Expected, Details) ->
+    lux_utils:diff_iter(Expected, Details, line, fun emit/4, []).
+
+emit(Op, line, Context, Acc) ->
     Bold = "b",
     Acc2 =
         case Op of
@@ -740,7 +743,7 @@ emit(Op, Context, line, Acc) ->
         last -> html_color(lists:reverse(Acc2), false);
         _    -> Acc2
     end;
-emit(Op, Context, char, Acc) ->
+emit(Op, char, Context, Acc) ->
     Bold = "b",
     case Op of
         {common, Common} ->
@@ -760,9 +763,6 @@ emit(Op, Context, char, Acc) ->
             [{<<"- ">>, "red", Bold, Clean, Del2},
              {<<"+ ">>, "blue", Bold, Clean, Add2} | Acc]
     end.
-
-html_diff(Expected, Details) ->
-    lux_utils:diff_iter(Expected, Details, line, fun emit/4, []).
 
 html_part(Del, Ins) when length(Del) =:= length(Ins) ->
     html_part2(Del, Ins, [], [], noclean);
