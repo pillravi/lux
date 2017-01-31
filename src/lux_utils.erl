@@ -644,9 +644,9 @@ normalize_regexp(RegExp) when is_list(RegExp) ->
 -type acc() :: term().
 -type callback() :: fun((op(), context(), type(), acc()) -> acc()).
 -spec diff_iter([binary()], [binary()], callback(), acc()) -> acc().
-diff_iter(Old, New, Fun) ->
+diff_iter(Old, New, Type, Fun) ->
     Diff = diff(Old, New),
-    diff_iter(Diff, Fun, first, line, []).
+    diff_iter(Diff, Fun, first, Type, []).
 
 diff_iter([H|T], Fun, Context, Type, Acc) ->
     case H of

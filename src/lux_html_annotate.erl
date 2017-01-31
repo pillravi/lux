@@ -673,7 +673,7 @@ html_result(Tag, {result, Result}, HtmlLog) ->
             E2 = lux_utils:normalize_newlines(E),
             E3 = binary:replace(E2, <<"\\\\">>, <<"\\">>, [global]),
             Expected = binary:split(E3, <<"\\R">>, [global]),
-            HtmlDiff = lux_utils:diff_iter(Expected, Details, fun emit/4, []),
+            HtmlDiff = html_diff(Expected, Details),
             [
              "\n<", Tag, ">Result: <strong>",
              lux_html_utils:html_href([HtmlLog, "#failed"], "FAILED"),
@@ -693,7 +693,7 @@ html_result(Tag, {result, Result}, HtmlLog) ->
             E2 = lux_utils:normalize_newlines(E),
             E3 = binary:replace(E2, <<"\\\\">>, <<"\\">>, [global]),
             Expected = binary:split(E3, <<"\\R">>, [global]),
-            HtmlDiff = lux_utils:diff_iter(Expected, Details, fun emit/4, []),
+            HtmlDiff = html_diff(Expected, Details),
             [
              "\n<", Tag, ">Result: <strong>",
              lux_html_utils:html_href([HtmlLog, "#failed"], "FAILED"),
@@ -737,16 +737,16 @@ emit(Op, Context, line, Acc) ->
                  {<<"+ ">>, "blue", Bold, Clean, Add2} | Acc]
         end,
     case Context of
-        last -> html_color(lists:reverse(Acc2), Rep);
+        last -> html_color(lists:reverse(Acc2), false);
         _    -> Acc2
     end;
 emit(Op, Context, char, Acc) ->
     Bold = "b",
     case Op of
         {common, Common} ->
-            {<<"  ">>, "black", Bold, clean, Common};
+            [{<<"  ">>, "black", Bold, clean, Common}];
         {del, Del} ->
-            [{<<"- ">>,"red", Bold, clean, Del};
+            [{<<"- ">>,"red", Bold, clean, Del}];
         {add, Add} ->
             Prefix =
                 case Context of
@@ -761,8 +761,8 @@ emit(Op, Context, char, Acc) ->
              {<<"+ ">>, "blue", Bold, Clean, Add2} | Acc]
     end.
 
-html_diff([], Acc, _Prev, Rep) ->
-    html_color(lists:reverse(Acc), Rep).
+html_diff(Expected, Details) ->
+    lux_utils:diff_iter(Expected, Details, line, fun emit/4, []).
 
 html_part(Del, Ins) when length(Del) =:= length(Ins) ->
     html_part2(Del, Ins, [], [], noclean);
