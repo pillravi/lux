@@ -716,34 +716,39 @@ html_result(Tag, {result, Result}, HtmlLog) ->
     end.
 
 html_diff(Expected, Details) ->
-    lux_utils:diff_iter(Expected, Details, line, fun emit/4, []).
+    X = lux_utils:diff_iter(Expected, Details, deep, fun last_emit/4, []),
+    io:format("\nDIFF ~p\n", [lists:flatten(X)]),
+    X.
 
-emit(Op, line, Context, Acc) ->
+last_emit(Op, Type, Context, Acc) ->
+    io:format("\nCON ~p ~p\n", [Type, Context]),
+    NewAcc = emit(Op, Type, Context, Acc),
+    case Context of
+        last -> html_color(lists:reverse(NewAcc), false);
+        _    -> NewAcc
+    end.
+
+emit(Op, deep, Context, Acc) ->
     Bold = "b",
-    Acc2 =
-        case Op of
-            {common, Common} ->
-                [{<<"  ">>, "black", Bold, clean, Common} | Acc];
-            {del, Del} ->
-                [{<<"- ">>,"red", Bold, clean, Del} | Acc];
-            {add, Add} ->
-                Prefix =
+    case Op of
+        {common, Common} ->
+            [{<<"  ">>, "black", Bold, clean, Common} | Acc];
+        {del, Del} ->
+            [{<<"- ">>,"red", Bold, clean, Del} | Acc];
+        {add, Add} ->
+            Prefix =
                 case Context of
                     first -> <<"  ">>;
                     last  -> <<"  ">>;
                     other -> <<"+ ">>
                 end,
-                [{Prefix, "blue", Bold, clean, Add} | Acc];
-            {replace, Del, Add} ->
-                {Clean, Del2, Add2} = html_part(Del, Add),
-                [{<<"- ">>, "red", Bold, Clean, Del2},
-                 {<<"+ ">>, "blue", Bold, Clean, Add2} | Acc]
-        end,
-    case Context of
-        last -> html_color(lists:reverse(Acc2), false);
-        _    -> Acc2
+            [{Prefix, "blue", Bold, clean, Add} | Acc];
+        {replace, Del, Add} ->
+            {Clean, Del2, Add2} = html_part(Del, Add),
+            [{<<"- ">>, "red", Bold, Clean, Del2},
+             {<<"+ ">>, "blue", Bold, Clean, Add2} | Acc]
     end;
-emit(Op, char, Context, Acc) ->
+emit(Op, flat, Context, Acc) ->
     Bold = "b",
     case Op of
         {common, Common} ->
@@ -777,7 +782,6 @@ html_part2([], [], DelAcc, InsAcc, Clean2) ->
     {Clean2,
      [?l2b(lists:reverse(DelAcc))],
      [?l2b(lists:reverse(InsAcc))]}.
-
 
 html_part_diff([H|T], DelAcc, InsAcc, Clean) ->
     Underline = "u",
